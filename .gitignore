@@ -5,12 +5,15 @@ __pycache__/
 *.onnx
 .DS_Store
 
-# کل محتوای این دایرکتوری‌ها نادیده شود
+# همه چیز را در این پوشه‌ها نادیده بگیر
 dataset/**
 results/**
 
-# اما فایل‌های .gitkeep داخلشان نادیده نشود (برای حفظ اسکلت پوشه‌ها)
-!dataset/.gitkeep
+# ولی خود پوشه‌ها و زیرفولدرها و .gitkeep را نادیده نگیر
+!dataset/
+!dataset/**/
 !dataset/**/.gitkeep
-!results/.gitkeep
+
+!results/
+!results/**/
 !results/**/.gitkeep
