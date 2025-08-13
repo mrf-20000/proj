@@ -12,8 +12,10 @@ results/**
 # ولی خود پوشه‌ها و زیرفولدرها و .gitkeep را نادیده نگیر
 !dataset/
 !dataset/**/
+!dataset/.gitkeep
 !dataset/**/.gitkeep
 
 !results/
 !results/**/
+!results/.gitkeep
 !results/**/.gitkeep
