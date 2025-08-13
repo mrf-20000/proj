@@ -1,9 +1,16 @@
 __pycache__/
 *.pyc
-results/
-dataset/
-!.gitkeep
 *.pth
 *.pt
 *.onnx
 .DS_Store
+
+# کل محتوای این دایرکتوری‌ها نادیده شود
+dataset/**
+results/**
+
+# اما فایل‌های .gitkeep داخلشان نادیده نشود (برای حفظ اسکلت پوشه‌ها)
+!dataset/.gitkeep
+!dataset/**/.gitkeep
+!results/.gitkeep
+!results/**/.gitkeep
