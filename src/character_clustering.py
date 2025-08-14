@@ -324,7 +324,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--metric", choices=list(MetricFun.keys()), default="silhouette")
     parser.add_argument("--k", type=int, default=16, help="number of clusters/components")
     parser.add_argument("--pca_dim", type=int, help="fixed PCA dimension (skip auto PCA search)")
-    parser.add_argument("--save_dir", default="figures",
+    parser.add_argument("--save_dir", default="results/character_clustering",
                         help="directory to save figures or 'none' to disable")
 
     # grid mode
