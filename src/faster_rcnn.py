@@ -567,7 +567,7 @@ if __name__ == '__main__':
     print(f"Using device: {device}")
 
     # Paths
-    OUTPUT_DIR = os.path.join('results', 'faster rcnn')
+    OUTPUT_DIR = os.path.join('results', 'faster_rcnn')
     train_img_dir = 'dataset/train/images'
     train_label_dir = 'dataset/train/labels'
     val_img_dir = 'dataset/val/images'
