@@ -24,7 +24,7 @@ from tqdm import tqdm
 # =========================
 # Seed for Reproducibility
 # =========================
-SEED = 42  # هر عدد ثابت
+SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
@@ -34,7 +34,6 @@ torch.cuda.manual_seed_all(SEED)
 # برای اطمینان از ثابت بودن نتایج در CuDNN
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-
 
 # =========================
 # Dataset & Helpers
@@ -48,7 +47,7 @@ class CharacterBoxDataset(Dataset):
         self.img_files = []
 
         for img_name in sorted(os.listdir(img_dir)):
-            if not img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
+            if not img_name.lower().endswith(('.png', '.jpg', '.jpeg')):
                 continue
             base = os.path.splitext(img_name)[0]
             jpath = os.path.join(label_dir, base + '.json')
@@ -90,25 +89,21 @@ class CharacterBoxDataset(Dataset):
             longest = max(h0, w0)
             if longest > self.max_size:
                 s = self.max_size / float(longest)
-                image = image.resize(
-                    (max(1, int(round(w0 * s))), max(1, int(round(h0 * s)))),
-                    Image.Resampling.BILINEAR
-                )
+                image = image.resize((max(1, int(round(w0*s))), max(1, int(round(h0*s)))), Image.Resampling.BILINEAR)
                 if boxes:
                     boxes = (torch.tensor(boxes, dtype=torch.float32) * s).tolist()
 
         labels = torch.ones((len(boxes),), dtype=torch.int64)
         target = {
-            "boxes": torch.as_tensor(boxes, dtype=torch.float32) if boxes else torch.zeros((0, 4), dtype=torch.float32),
+            "boxes": torch.as_tensor(boxes, dtype=torch.float32) if boxes else torch.zeros((0,4), dtype=torch.float32),
             "labels": labels,
             "image_id": torch.tensor([idx]),
-            "size": torch.tensor([image.size[1], image.size[0]], dtype=torch.int64),
+            "size": torch.tensor([image.size[1], image.size[0]], dtype=torch.int64)
         }
 
         if self.transforms:
             image = self.transforms(image)
         return image, target
-
 
 class TestCharacterDataset(Dataset):
     def __init__(self, img_dir, transform=None, max_size=1024):
@@ -144,10 +139,8 @@ class TestCharacterDataset(Dataset):
         image_id = os.path.splitext(img_name)[0]  # strip extension
         return im, image_id, torch.tensor(scale, dtype=torch.float32), torch.tensor([h0, w0], dtype=torch.int64)
 
-
 def collate_fn(batch):
     return tuple(zip(*batch))
-
 
 def pad_to_common(images, stride):
     sizes = [img.shape[-2:] for img in images]
@@ -158,11 +151,8 @@ def pad_to_common(images, stride):
     padded = [F.pad(img, (0, pad_w - img.shape[-1], 0, pad_h - img.shape[-2])) for img in images]
     return torch.stack(padded, dim=0), sizes
 
-
-# --- Helper: انتقال دیکشنریِ تنسورها به CPU ---
 def dict_tensors_to_cpu(d):
     return {k: (v.detach().cpu() if torch.is_tensor(v) else v) for k, v in d.items()}
-
 
 # =========================
 # Backbone & Head (GroupNorm)
@@ -174,26 +164,20 @@ class ConvBlock(nn.Module):
         groups = 32 if c_out % 32 == 0 else (16 if c_out % 16 == 0 else 8)
         self.bn = nn.GroupNorm(groups, c_out)
         self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        return self.relu(self.bn(self.conv(x)))
-
+    def forward(self, x): return self.relu(self.bn(self.conv(x)))
 
 class TinyBackbone(nn.Module):
     def __init__(self, base=64):
         super().__init__()
         self.body = nn.Sequential(
-            ConvBlock(3, base, s=2),      ConvBlock(base, base),
-            ConvBlock(base, base * 2, s=2),  ConvBlock(base * 2, base * 2),
-            ConvBlock(base * 2, base * 4, s=2),  ConvBlock(base * 4, base * 4),
-            ConvBlock(base * 4, 256, s=2),     ConvBlock(256, 256),
+            ConvBlock(3,    base,   s=2), ConvBlock(base, base),
+            ConvBlock(base, base*2, s=2), ConvBlock(base*2, base*2),
+            ConvBlock(base*2, base*4, s=2), ConvBlock(base*4, base*4),
+            ConvBlock(base*4, 256,    s=2), ConvBlock(256,    256),
         )
         self.out_channels = 256
         self.out_stride = 16
-
-    def forward(self, x):
-        return self.body(x)
-
+    def forward(self, x): return self.body(x)
 
 class FastRCNNHead(nn.Module):
     def __init__(self, in_channels=256, pool_size=7, hidden=1024, num_classes=2):
@@ -221,45 +205,27 @@ class FastRCNNHead(nn.Module):
         deltas = self.bbox_pred(x)
         return scores, deltas
 
-
 def encode_boxes(ex_rois, gt_rois, weights):
-    ex_w = ex_rois[:, 2] - ex_rois[:, 0]
-    ex_h = ex_rois[:, 3] - ex_rois[:, 1]
-    ex_cx = ex_rois[:, 0] + 0.5 * ex_w
-    ex_cy = ex_rois[:, 1] + 0.5 * ex_h
-
-    gt_w = gt_rois[:, 2] - gt_rois[:, 0]
-    gt_h = gt_rois[:, 3] - gt_rois[:, 1]
-    gt_cx = gt_rois[:, 0] + 0.5 * gt_w
-    gt_cy = gt_rois[:, 1] + 0.5 * gt_h
-
+    ex_w = ex_rois[:, 2] - ex_rois[:, 0]; ex_h = ex_rois[:, 3] - ex_rois[:, 1]
+    ex_cx = ex_rois[:, 0] + 0.5 * ex_w;   ex_cy = ex_rois[:, 1] + 0.5 * ex_h
+    gt_w = gt_rois[:, 2] - gt_rois[:, 0]; gt_h = gt_rois[:, 3] - gt_rois[:, 1]
+    gt_cx = gt_rois[:, 0] + 0.5 * gt_w;   gt_cy = gt_rois[:, 1] + 0.5 * gt_h
     dx = (gt_cx - ex_cx) / ex_w.clamp(min=1e-6)
     dy = (gt_cy - ex_cy) / ex_h.clamp(min=1e-6)
     dw = torch.log(gt_w.clamp(min=1e-6) / ex_w.clamp(min=1e-6))
     dh = torch.log(gt_h.clamp(min=1e-6) / ex_h.clamp(min=1e-6))
-
     deltas = torch.stack([dx, dy, dw, dh], dim=1)
     return deltas * weights.to(deltas.device)
 
-
 def decode_boxes(boxes, deltas):
-    w = boxes[:, 2] - boxes[:, 0]
-    h = boxes[:, 3] - boxes[:, 1]
-    cx = boxes[:, 0] + 0.5 * w
-    cy = boxes[:, 1] + 0.5 * h
-
+    w = boxes[:, 2] - boxes[:, 0]; h = boxes[:, 3] - boxes[:, 1]
+    cx = boxes[:, 0] + 0.5 * w;     cy = boxes[:, 1] + 0.5 * h
     dx, dy, dw, dh = deltas[:, 0], deltas[:, 1], deltas[:, 2], deltas[:, 3]
-    pred_cx = cx + dx * w
-    pred_cy = cy + dy * h
-    pred_w = torch.exp(dw) * w
-    pred_h = torch.exp(dh) * h
-
-    x1 = pred_cx - 0.5 * pred_w
-    y1 = pred_cy - 0.5 * pred_h
-    x2 = pred_cx + 0.5 * pred_w
-    y2 = pred_cy + 0.5 * pred_h
+    pred_cx = cx + dx * w;        pred_cy = cy + dy * h
+    pred_w  = torch.exp(dw) * w;  pred_h  = torch.exp(dh) * h
+    x1 = pred_cx - 0.5 * pred_w;  y1 = pred_cy - 0.5 * pred_h
+    x2 = pred_cx + 0.5 * pred_w;  y2 = pred_cy + 0.5 * pred_h
     return torch.stack([x1, y1, x2, y2], dim=1)
-
 
 # =========================
 # Model
@@ -286,12 +252,7 @@ class MyFasterRCNN(nn.Module):
             nms_thresh=rpn_nms_thresh
         )
 
-        self.box_head = FastRCNNHead(
-            in_channels=self.out_channels,
-            pool_size=pool_size,
-            hidden=1024,
-            num_classes=num_classes
-        )
+        self.box_head = FastRCNNHead(in_channels=self.out_channels, pool_size=pool_size, hidden=1024, num_classes=num_classes)
         self.box_score_thresh = box_score_thresh
         self.box_nms_thresh = box_nms_thresh
         self.box_batch_size_per_image = box_batch_size_per_image
@@ -326,156 +287,92 @@ class MyFasterRCNN(nn.Module):
 
             if gt_boxes.numel() == 0:
                 num = min(self.box_batch_size_per_image, len(props))
-                if len(props) > 0:
-                    idx = torch.randperm(len(props), device=device)[:num]
-                    sampled_rois.append(props[idx])
-                    matched_gt.append(torch.zeros_like(props[idx]))
-                    cls_targets.append(torch.zeros(len(idx), dtype=torch.int64, device=device))
-                else:
-                    sampled_rois.append(torch.zeros((0, 4), device=device))
-                    matched_gt.append(torch.zeros((0, 4), device=device))
-                    cls_targets.append(torch.zeros((0,), dtype=torch.int64, device=device))
+                idx = torch.randperm(len(props), device=device)[:num] if len(props) > 0 else torch.empty(0, dtype=torch.long, device=device)
+                sampled_rois.append(props[idx])
+                matched_gt.append(torch.zeros_like(props[idx]))
+                cls_targets.append(torch.zeros(len(idx), dtype=torch.int64, device=device))
                 continue
 
             ious = box_iou(props, gt_boxes)
             max_iou, max_id = ious.max(dim=1)
             pos_idx = torch.where(max_iou >= 0.5)[0]
             neg_idx = torch.where((max_iou < 0.5) & (max_iou >= 0.1))[0]
-
             num_pos = min(int(self.box_batch_size_per_image * self.box_positive_fraction), len(pos_idx))
             num_neg = min(self.box_batch_size_per_image - num_pos, len(neg_idx))
-
             perm_pos = torch.randperm(len(pos_idx), device=device)[:num_pos]
             perm_neg = torch.randperm(len(neg_idx), device=device)[:num_neg]
             keep_idx = torch.cat([pos_idx[perm_pos], neg_idx[perm_neg]])
-
             sampled_rois.append(props[keep_idx])
-
             cls_t = torch.zeros(keep_idx.numel(), dtype=torch.int64, device=device)
             cls_t[:num_pos] = 1
             cls_targets.append(cls_t)
-
             matched_gt.append(gt_boxes[max_id[keep_idx]])
-
         return sampled_rois, matched_gt, cls_targets
 
     def _roi_forward_train(self, features, proposals, targets, device):
         sampled_proposals, matched_gts, cls_targets_list = self._sample_proposals(proposals, targets, device)
         if not any(p.numel() > 0 for p in sampled_proposals):
-            return {"loss_classifier": torch.tensor(0.0, device=device),
-                    "loss_box_reg": torch.tensor(0.0, device=device)}
+            return {"loss_classifier": torch.tensor(0.0, device=device), "loss_box_reg": torch.tensor(0.0, device=device)}
 
-        roi_list = []
-        for i, rois in enumerate(sampled_proposals):
-            if rois.numel() > 0:
-                roi_list.append(torch.cat(
-                    [torch.full((rois.shape[0], 1), i, dtype=rois.dtype, device=device), rois],
-                    dim=1
-                ))
+        roi_list = [torch.cat([torch.full((rois.shape[0], 1), i, dtype=rois.dtype, device=device), rois], dim=1) for i, rois in enumerate(sampled_proposals) if rois.numel() > 0]
         if not roi_list:
-            return {"loss_classifier": torch.tensor(0.0, device=device),
-                    "loss_box_reg": torch.tensor(0.0, device=device)}
+            return {"loss_classifier": torch.tensor(0.0, device=device), "loss_box_reg": torch.tensor(0.0, device=device)}
 
         rois_all = torch.cat(roi_list, dim=0)
-        pooled_feats = roi_align(features['0'], rois_all, (self.pool_size, self.pool_size),
-                                 1.0 / self.feature_stride, aligned=True)
+        pooled_feats = roi_align(features['0'], rois_all, (self.pool_size, self.pool_size), 1.0/self.feature_stride, aligned=True)
         class_logits, box_regression = self.box_head(pooled_feats)
-
         cls_targets = torch.cat(cls_targets_list, dim=0)
         loss_cls = F.cross_entropy(class_logits, cls_targets)
 
         pos_mask = cls_targets > 0
         if pos_mask.any():
-            target_deltas = encode_boxes(
-                torch.cat(sampled_proposals, dim=0)[pos_mask],
-                torch.cat(matched_gts, dim=0)[pos_mask],
-                self.box_weights
-            )
+            target_deltas = encode_boxes(torch.cat(sampled_proposals, dim=0)[pos_mask], torch.cat(matched_gts, dim=0)[pos_mask], self.box_weights)
             loss_reg = F.smooth_l1_loss(box_regression[pos_mask], target_deltas, reduction='sum') / pos_mask.sum().clamp(min=1)
         else:
             loss_reg = torch.tensor(0.0, device=device)
-
         return {"loss_classifier": loss_cls, "loss_box_reg": loss_reg}
 
     @torch.no_grad()
     def _roi_forward_infer(self, features, proposals, sizes_hw, device):
-        """
-        نسخه پایدار: فقط پاک‌سازی ROIهای نامعتبر + contiguous. هیچ تغییری در منطق، aligned، آستانه‌ها و ... نداده‌ایم.
-        """
         results = []
-        feat = features["0"]  # [B, C, H', W']
+        feat = features["0"]
 
         for i, (props, (H, W)) in enumerate(zip(proposals, sizes_hw)):
-            # 1) کلیپ داخل تصویر (رفتار سابق)
             props = clip_boxes_to_image(props, (H, W))
 
-            # اگر خالی بود
             if props.numel() == 0:
-                results.append({
-                    "boxes": torch.zeros((0, 4), device=device),
-                    "labels": torch.zeros((0,), dtype=torch.int64, device=device),
-                    "scores": torch.zeros((0,), device=device),
-                })
+                results.append({"boxes": torch.zeros((0,4), device=device), "labels": torch.zeros((0,), dtype=torch.int64, device=device), "scores": torch.zeros((0,), device=device)})
                 continue
 
-            # --- افزوده‌های بدون اثر روی دقت: sanitize + contiguous ---
             props = props.contiguous()
             finite = torch.isfinite(props).all(dim=1)
             wh = props[:, 2:4] - props[:, 0:2]
-            pos_area = (wh[:, 0] > 1e-6) & (wh[:, 1] > 1e-6)  # آستانه بسیار کوچک
+            pos_area = (wh[:, 0] > 1e-6) & (wh[:, 1] > 1e-6)
             keep_mask = finite & pos_area
 
             if not keep_mask.any():
-                results.append({
-                    "boxes": torch.zeros((0, 4), device=device),
-                    "labels": torch.zeros((0,), dtype=torch.int64, device=device),
-                    "scores": torch.zeros((0,), device=device),
-                })
+                results.append({"boxes": torch.zeros((0,4), device=device), "labels": torch.zeros((0,), dtype=torch.int64, device=device), "scores": torch.zeros((0,), device=device)})
                 continue
 
             props = props[keep_mask].contiguous()
-
-            # 2) ساخت ROIs مثل قبل + contiguous
-            rois = torch.cat(
-                [torch.full((props.shape[0], 1), 0, dtype=props.dtype, device=device), props],
-                dim=1
-            ).contiguous()
-
-            # 3) ROIAlign با همان تنظیم سابق (aligned=True) تا رفتار تغییر نکند
-            roi_feats = roi_align(
-                feat[i:i + 1].contiguous(),
-                rois,
-                (self.pool_size, self.pool_size),
-                spatial_scale=1.0 / float(self.feature_stride),
-                aligned=True
-            )
-
+            rois = torch.cat([torch.full((props.shape[0], 1), 0, dtype=props.dtype, device=device), props], dim=1).contiguous()
+            roi_feats = roi_align(feat[i:i+1].contiguous(), rois, (self.pool_size, self.pool_size), spatial_scale=1.0 / float(self.feature_stride), aligned=True)
             scores, deltas = self.box_head(roi_feats)
             fg_scores = F.softmax(scores, dim=1)[:, 1]
 
             keep = fg_scores >= self.box_score_thresh
             if not keep.any():
-                results.append({
-                    "boxes": torch.zeros((0, 4), device=device),
-                    "labels": torch.zeros((0,), dtype=torch.int64, device=device),
-                    "scores": torch.zeros((0,), device=device),
-                })
+                results.append({"boxes": torch.zeros((0,4), device=device), "labels": torch.zeros((0,), dtype=torch.int64, device=device), "scores": torch.zeros((0,), device=device)})
                 continue
 
             props_kept, deltas_kept, scores_kept = props[keep], deltas[keep], fg_scores[keep]
             boxes_dec = decode_boxes(props_kept, deltas_kept / self.box_weights.to(deltas_kept.device))
             boxes_dec = clip_boxes_to_image(boxes_dec, (H, W)).contiguous()
-
             keep_nms = nms(boxes_dec, scores_kept, self.box_nms_thresh)
             boxes_final, scores_final = boxes_dec[keep_nms], scores_kept[keep_nms]
 
-            results.append({
-                "boxes": boxes_final,
-                "labels": torch.ones(boxes_final.size(0), dtype=torch.int64, device=device),
-                "scores": scores_final
-            })
+            results.append({"boxes": boxes_final, "labels": torch.ones(boxes_final.size(0), dtype=torch.int64, device=device), "scores": scores_final})
         return results
-
 
 # =========================
 # Evaluation Functions
@@ -499,7 +396,7 @@ def evaluate_f1(model, data_loader, device, iou_thresh=0.5, score_thresh=0.5):
                 if pb.numel() == 0:
                     FN += gb.shape[0]
                     continue
-
+                
                 order = torch.argsort(ps, descending=True)
                 pb = pb[order]
                 assigned = torch.zeros(gb.shape[0], dtype=torch.bool)
@@ -520,13 +417,11 @@ def evaluate_f1(model, data_loader, device, iou_thresh=0.5, score_thresh=0.5):
     finally:
         model.box_score_thresh = orig_thresh
 
-
 @torch.no_grad()
 def calculate_and_plot_map_vs_iou(model, data_loader, device, output_dir):
     print("\n--- Calculating mAP vs. IoU Threshold ---")
     model.eval()
-
-    # اول، همهٔ پیش‌بینی‌ها و GTها را جمع می‌کنیم
+    
     all_preds, all_gts = [], []
     for images, targets in tqdm(data_loader, desc="Gathering predictions"):
         images = [im.to(device) for im in images]
@@ -539,56 +434,53 @@ def calculate_and_plot_map_vs_iou(model, data_loader, device, output_dir):
 
     for iou_thresh in tqdm(iou_thresholds, desc="Calculating AP per IoU"):
         all_scores = []
-        all_matches = []  # 1 برای TP، صفر برای FP
+        all_matches = [] 
         total_gt_boxes = sum(len(t['boxes']) for t in all_gts)
 
         for pred, gt in zip(all_preds, all_gts):
             gt_boxes = gt['boxes']
             pred_boxes = pred['boxes']
             pred_scores = pred['scores']
-
+            
             if pred_boxes.numel() == 0:
                 continue
 
-            # مرتب‌سازی بر اساس نمره
             sort_idx = torch.argsort(pred_scores, descending=True)
             pred_boxes = pred_boxes[sort_idx]
             pred_scores = pred_scores[sort_idx]
-
+            
             matches = torch.zeros(pred_boxes.shape[0], dtype=torch.bool)
             if gt_boxes.numel() > 0:
                 gt_assigned = torch.zeros(gt_boxes.shape[0], dtype=torch.bool)
                 ious = box_iou(pred_boxes, gt_boxes)
                 for i in range(pred_boxes.shape[0]):
                     iou_row = ious[i, :]
-                    iou_row[gt_assigned] = -1  # GTهایی که قبلاً match شده‌اند را نادیده بگیر
+                    iou_row[gt_assigned] = -1 
                     max_iou, max_idx = iou_row.max(0)
                     if max_iou >= iou_thresh:
                         matches[i] = 1
                         gt_assigned[max_idx] = True
-
+            
             all_scores.extend(pred_scores.tolist())
             all_matches.extend(matches.tolist())
 
         if total_gt_boxes == 0:
             ap_scores.append(1.0 if len(all_scores) == 0 else 0.0)
             continue
-
+        
         if len(all_scores) == 0:
             ap_scores.append(0.0)
             continue
 
-        # مرتب‌سازی سراسری بر اساس نمره
         sort_indices = np.argsort(all_scores)[::-1]
         all_matches_sorted = np.array(all_matches)[sort_indices]
 
         tp = np.cumsum(all_matches_sorted)
         fp = np.cumsum(1 - all_matches_sorted)
-
+        
         recall = tp / total_gt_boxes
         precision = tp / (tp + fp)
 
-        # AP با اینترپولیشن 11-نقطه‌ای
         ap = 0.0
         for t in np.arange(0., 1.1, 0.1):
             if np.sum(recall >= t) == 0:
@@ -598,7 +490,6 @@ def calculate_and_plot_map_vs_iou(model, data_loader, device, output_dir):
             ap += p / 11.
         ap_scores.append(ap)
 
-    # رسم نمودار
     plt.figure(figsize=(10, 6))
     plt.plot(iou_thresholds, ap_scores, marker='o', linestyle='-', label='AP per Threshold')
     plt.axvline(x=0.5, color='r', linestyle='--', label='mAP@0.5 (PASCAL VOC)')
@@ -609,14 +500,11 @@ def calculate_and_plot_map_vs_iou(model, data_loader, device, output_dir):
     plt.ylim(0, 1.05)
     plt.grid(True)
     plt.legend()
-
-    # ذخیره نمودار
-    os.makedirs(output_dir, exist_ok=True)
+    
     plot_path = os.path.join(output_dir, "map_vs_iou_threshold.png")
     plt.savefig(plot_path)
     print(f"✅ mAP vs. IoU plot saved to {plot_path}")
     plt.show()
-
 
 # =========================
 # Visualization helper
@@ -624,15 +512,14 @@ def calculate_and_plot_map_vs_iou(model, data_loader, device, output_dir):
 def visualize_predictions(model, dataset, device, num_samples=3, threshold=0.5, output_dir='.'):
     model.eval()
     fig, axes = plt.subplots(1, num_samples, figsize=(6 * num_samples, 6))
-    if num_samples == 1:
-        axes = [axes]
+    if num_samples == 1: axes = [axes]
     idx2label = {1: 'char'}
 
     for i, ax in enumerate(axes):
         if len(dataset) == 0:
             print("Validation dataset is empty, cannot visualize.")
             return
-        sample_idx = torch.randint(0, len(dataset), (1,)).item()
+        sample_idx = i % len(dataset)
         image, _ = dataset[sample_idx]
         with torch.no_grad():
             orig = model.box_score_thresh
@@ -647,25 +534,35 @@ def visualize_predictions(model, dataset, device, num_samples=3, threshold=0.5, 
             if score.item() >= threshold:
                 b = box.tolist()
                 draw.rectangle([(b[0], b[1]), (b[2], b[3])], outline="lime", width=3)
-                draw.text((b[0], max(0, b[1] - 15)), f"{idx2label.get(label.item(), 'N/A')} ({score:.2f})", fill="lime")
+                draw.text((b[0], max(0, b[1]-15)), f"{idx2label.get(label.item(),'N/A')} ({score:.2f})", fill="lime")
 
         ax.imshow(img_pil)
-        ax.set_title(f"Sample {i + 1}")
+        ax.set_title(f"Sample {i+1}")
         ax.axis('off')
 
     plt.tight_layout()
-    os.makedirs(output_dir, exist_ok=True)
     viz_path = os.path.join(output_dir, "fastrcnn_results.png")
     plt.savefig(viz_path)
     print(f"Predictions visualization saved to {viz_path}")
     plt.show()
 
-
 # =========================
 # Main Execution Block
 # =========================
+def seed_worker(worker_id):
+    """
+    Helper function to seed each DataLoader worker.
+    """
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
 if __name__ == '__main__':
-    # --- Configuration ---
+    # The following lines are commented out to prevent CUDA OOM errors.
+    # This is the practical trade-off for performance vs. perfect reproducibility.
+    # torch.use_deterministic_algorithms(True)
+    # os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
@@ -673,27 +570,46 @@ if __name__ == '__main__':
     OUTPUT_DIR = os.path.join('results', 'faster rcnn')
     train_img_dir = 'dataset/train/images'
     train_label_dir = 'dataset/train/labels'
-    val_img_dir = 'dataset/valid/images'    # طبق کد اصلی شما: valid
-    val_label_dir = 'dataset/valid/labels'
+    val_img_dir = 'dataset/val/images'
+    val_label_dir = 'dataset/val/labels'
     test_img_dir = 'dataset/test/images'
-
+    
     # Create directories
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(train_img_dir, exist_ok=True); os.makedirs(train_label_dir, exist_ok=True)
     os.makedirs(val_img_dir, exist_ok=True);   os.makedirs(val_label_dir, exist_ok=True)
     os.makedirs(test_img_dir, exist_ok=True)
-
+    
     # Hyperparameters
     MAX_SIZE, BATCH_SIZE, NUM_WORKERS_LOADER = 800, 4, 2
     LEARNING_RATE, WEIGHT_DECAY, EPOCHS = 2e-4, 1e-4, 50
+    
+    # --- Data Loading with Reproducibility ---
+    g = torch.Generator()
+    g.manual_seed(SEED)
 
-    # --- Data Loading ---
     tfm = transforms.Compose([transforms.ToTensor()])
     train_ds = CharacterBoxDataset(train_img_dir, train_label_dir, tfm, max_size=MAX_SIZE)
     val_ds   = CharacterBoxDataset(val_img_dir,   val_label_dir,   tfm, max_size=MAX_SIZE)
 
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  collate_fn=collate_fn, num_workers=NUM_WORKERS_LOADER)
-    val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn, num_workers=NUM_WORKERS_LOADER)
+    train_loader = DataLoader(
+        train_ds, 
+        batch_size=BATCH_SIZE, 
+        shuffle=True, 
+        collate_fn=collate_fn,
+        num_workers=NUM_WORKERS_LOADER, 
+        worker_init_fn=seed_worker, 
+        generator=g
+    )
+    val_loader   = DataLoader(
+        val_ds,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        collate_fn=collate_fn,
+        num_workers=NUM_WORKERS_LOADER,
+        worker_init_fn=seed_worker,
+        generator=g
+    )
 
     # --- Model, Optimizer, Scheduler ---
     model = MyFasterRCNN(num_classes=2).to(device)
@@ -708,7 +624,7 @@ if __name__ == '__main__':
 
     for epoch in range(EPOCHS):
         model.train()
-        pbar_train = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCHS} [Train]")
+        pbar_train = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS} [Train]")
         for images, targets in pbar_train:
             images = [im.to(device) for im in images]
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -716,7 +632,8 @@ if __name__ == '__main__':
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast(device_type=device.type, enabled=scaler.is_enabled()):
                 loss_dict = model(images, targets)
-                loss = sum(l for l in loss_dict.values())
+                # Sum losses in a fixed order for consistency
+                loss = sum(loss_dict[k] for k in sorted(loss_dict.keys()))
 
             if torch.isfinite(loss):
                 scaler.scale(loss).backward()
@@ -726,7 +643,7 @@ if __name__ == '__main__':
 
         # Validation F1
         precision, recall, f1 = evaluate_f1(model, val_loader, device, iou_thresh=0.5, score_thresh=0.5)
-        print(f"Epoch {epoch + 1:02d}/{EPOCHS} | P: {precision:.4f} | R: {recall:.4f} | F1: {f1:.4f} | LR: {optimizer.param_groups[0]['lr']:.2e}")
+        print(f"Epoch {epoch+1:02d}/{EPOCHS} | P: {precision:.4f} | R: {recall:.4f} | F1: {f1:.4f} | LR: {optimizer.param_groups[0]['lr']:.2e}")
         lr_scheduler.step()
 
         if f1 > best_f1:
@@ -744,7 +661,7 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(best_model_path, map_location=device))
     else:
         print("\nWarning: No best model found. Using model from the last epoch.")
-
+    
     # --- Detailed Evaluation and Plotting ---
     if len(val_ds) > 0:
         calculate_and_plot_map_vs_iou(model, val_loader, device, OUTPUT_DIR)
@@ -753,11 +670,11 @@ if __name__ == '__main__':
     if len(val_ds) > 0:
         print("\n--- Visualizing on validation set ---")
         visualize_predictions(model, val_ds, device, num_samples=min(3, len(val_ds)), threshold=0.5, output_dir=OUTPUT_DIR)
-
+        
     # --- Inference on Test Set ---
     print("\n--- Starting Inference on Test Set ---")
     CONFIDENCE_THRESHOLD, MAX_TEST_SIZE, INF_BATCH = 0.95, 1024, 8
-
+    
     test_dataset = TestCharacterDataset(test_img_dir, transform=tfm, max_size=MAX_TEST_SIZE)
     test_loader = DataLoader(test_dataset, batch_size=INF_BATCH, shuffle=False, collate_fn=collate_fn, num_workers=NUM_WORKERS_LOADER)
 
@@ -772,11 +689,9 @@ if __name__ == '__main__':
 
             for img_id, out, s, (H0, W0) in zip(image_ids, outputs, scales, orig_sizes):
                 boxes, scores = out.get('boxes', torch.empty(0, 4)).cpu(), out.get('scores', torch.empty(0)).cpu()
-                if boxes.numel() == 0:
-                    continue
+                if boxes.numel() == 0: continue
 
-                if float(s) != 1.0:
-                    boxes /= float(s)
+                if float(s) != 1.0: boxes /= float(s)
                 boxes[:, [0, 2]] = boxes[:, [0, 2]].clamp(min=0, max=float(W0))
                 boxes[:, [1, 3]] = boxes[:, [1, 3]].clamp(min=0, max=float(H0))
 
@@ -784,13 +699,7 @@ if __name__ == '__main__':
                 if keep.any():
                     for b in boxes[keep]:
                         x1, y1, x2, y2 = map(float, b.tolist())
-                        results.append({
-                            "image_id": img_id,
-                            "x": x1,
-                            "y": y1,
-                            "width": x2 - x1,
-                            "height": y2 - y1
-                        })
+                        results.append({"image_id": img_id, "x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1})
 
     # --- Save to CSV ---
     output_csv_path = os.path.join(OUTPUT_DIR, 'output.csv')
